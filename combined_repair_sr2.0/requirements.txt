@@ -1,0 +1,11 @@
+numpy>=1.23
+opencv-python>=4.8
+Pillow>=10.0
+
+# Optional deep-model / research utilities:
+# MindSpore availability depends on OS, Python version, CPU/GPU/Ascend target.
+# Install it from the official MindSpore selector when you need CRA/SRGAN ckpt inference.
+# mindspore
+# scipy>=1.10
+# scikit-image>=0.21
+# progressbar2>=4.0

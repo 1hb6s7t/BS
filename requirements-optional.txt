@@ -1,0 +1,5 @@
+# Optional dependencies for the original MindSpore CRA/SRGAN research paths.
+# Install MindSpore from the official selector for your OS, Python and accelerator.
+scipy>=1.10
+scikit-image>=0.21
+progressbar2>=4.0

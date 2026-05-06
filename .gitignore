@@ -1,0 +1,38 @@
+# Python/cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local parsing/temp artifacts
+.firecrawl/
+.omx/
+
+# Logs
+*.log
+combined_repair_sr2.0/combined_repair_sr.log
+
+# Generated runtime outputs
+output/
+output_demo*/
+combined_repair_sr2.0/output/
+defense_output/demo_comparison.png
+defense_output/gui_mock.png
+
+# Large model/data archives. Download or provide these locally instead.
+*.ckpt
+*.zip
+*.pth
+*.pt
+*.onnx
+
+# OS/editor local files
+.DS_Store
+Thumbs.db
+.vscode/
