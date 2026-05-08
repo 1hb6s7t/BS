@@ -7,6 +7,7 @@ __pycache__/
 
 # Virtual environments
 .venv/
+.venv-torch/
 venv/
 env/
 
@@ -24,6 +25,9 @@ output_demo*/
 combined_repair_sr2.0/output/
 defense_output/demo_comparison.png
 defense_output/gui_mock.png
+paper_results/gpu_benchmark/outputs_cpu/
+paper_results/gpu_benchmark/outputs_torch_cpu/
+paper_results/gpu_benchmark/outputs_gpu/
 
 # Large model/data archives. Download or provide these locally instead.
 *.ckpt

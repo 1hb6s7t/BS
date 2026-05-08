@@ -53,6 +53,27 @@ MindSpore 需要按你的系统、Python 版本和硬件从官方安装选择器
 
 详细安装命令、真实运行记录和“满血”GPU/Ascend 重跑方案见 `MINDSPORE_SETUP.md`。
 
+### 真实 GPU 性能补充（SRGAN 阶段）
+
+由于当前 Windows 主机上的 MindSpore wheel 仅支持 CPU，本仓库额外提供了 **SRGAN 原始权重的 PyTorch CUDA 对照基准**，用于补充真实 NVIDIA GPU 超分阶段性能：
+
+```bash
+python .\tools\benchmark_srgan_cpu_gpu.py
+```
+
+当前本机实测：
+
+- GPU：`NVIDIA GeForce RTX 4060 Laptop GPU`
+- PyTorch CUDA：`12.8`
+- 重点引用的真实加速比：`torch_cpu -> torch_cuda` 平均约 `11.24x`
+
+结果文件位于：
+
+- `paper_results/gpu_benchmark/README_gpu_benchmark.md`
+- `paper_results/gpu_benchmark/metrics/srgan_cpu_gpu_benchmark.csv`
+- `paper_results/gpu_benchmark/figures/srgan_cpu_gpu_latency.png`
+- `paper_results/gpu_benchmark/figures/srgan_cpu_gpu_speedup.png`
+
 ## 命令行运行
 
 生成内置示例并跑通完整流程：

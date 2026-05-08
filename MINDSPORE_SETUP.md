@@ -109,3 +109,32 @@ python tools\generate_paper_results.py `
 - `classic`：OpenCV 修复 + 双三次超分 + 锐化，适合作为可复现工程 baseline。
 - `deep CPU`：MindSpore CPU 能加载权重并运行 SRGAN，但 CRA 受 CPU 算子限制。
 - `deep GPU/Ascend`：只有在后续真实跑通后才能写作完整深度模型性能。
+
+## 6. 当前已补充的真实 GPU 性能数据
+
+虽然当前主机无法直接跑通完整 MindSpore deep GPU 版，但已经补充了 **SRGAN 超分阶段** 的真实 NVIDIA GPU 性能：
+
+```powershell
+.\.venv-ms\Scripts\python .\tools\benchmark_srgan_cpu_gpu.py
+```
+
+该脚本做了三类基准：
+
+1. `mindspore_cpu`：保留仓库当前原始实现的 CPU 参考性能；
+2. `torch_cpu`：使用同一 SRGAN 原始 checkpoint 的 PyTorch CPU 推理；
+3. `torch_cuda`：使用同一 SRGAN 原始 checkpoint 的 PyTorch CUDA 推理。
+
+建议论文中重点引用 `torch_cpu -> torch_cuda` 的真实加速比，因为这两者使用完全相同的转换后权重，输出几乎一致。
+
+当前本机结果摘要：
+
+- 平均加速比：约 `11.24×`
+- 小图（512×384）GPU 延迟：约 `139–147 ms`
+- 大图 `CRA/test/images/1.png`（2016×1134）GPU 延迟：约 `2270.5 ms`
+- 大图 `CRA/test/images/2.png`（2730×4096）GPU 延迟：约 `10087.0 ms`
+
+结果见：
+
+- `paper_results/gpu_benchmark/README_gpu_benchmark.md`
+- `paper_results/gpu_benchmark/metrics/srgan_cpu_gpu_benchmark.csv`
+- `paper_results/gpu_benchmark/metrics/srgan_cpu_gpu_comparison.csv`
