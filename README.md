@@ -74,6 +74,30 @@ python .\tools\benchmark_srgan_cpu_gpu.py
 - `paper_results/gpu_benchmark/figures/srgan_cpu_gpu_latency.png`
 - `paper_results/gpu_benchmark/figures/srgan_cpu_gpu_speedup.png`
 
+### 完整 GPU 端到端论文结果（CUDA 补充路径）
+
+当前 Windows MindSpore wheel 仍只支持 CPU，因此不能把本机结果写成“MindSpore GPU 端到端”。
+为满足论文中的 GPU 效果展示与对比实验，仓库额外提供了真实 CUDA 端到端结果生成脚本：
+
+```powershell
+# 如尚未安装 CUDA 版 PyTorch，可先安装：
+python -m pip install --index-url https://download.pytorch.org/whl/cu128 torch torchvision
+
+.\.venv-ms\Scripts\python .\tools\generate_gpu_paper_results.py
+```
+
+该脚本会生成 3 组 GPU 效果图与 3 组对比数据图：
+
+- `paper_results/gpu_full_pipeline/README_gpu_full_pipeline.md`
+- `paper_results/gpu_full_pipeline/figures/case01_natural_texture_gpu_effect_figure.png`
+- `paper_results/gpu_full_pipeline/figures/case02_indoor_structure_gpu_effect_figure.png`
+- `paper_results/gpu_full_pipeline/figures/case03_scene_depth_gpu_effect_figure.png`
+- `paper_results/gpu_full_pipeline/figures/gpu_quality_psnr_ssim.png`
+- `paper_results/gpu_full_pipeline/figures/gpu_mask_repair_quality.png`
+- `paper_results/gpu_full_pipeline/figures/gpu_runtime_memory.png`
+
+当前本机实测：平均全图 PSNR 相比未修复双三次放大提升约 `7.29 dB`，掩码区 PSNR 提升约 `7.32 dB`，平均端到端耗时约 `77.6 ms`，峰值显存约 `38.3 MB`。
+
 ## 命令行运行
 
 生成内置示例并跑通完整流程：

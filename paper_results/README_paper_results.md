@@ -43,9 +43,19 @@ python tools\generate_paper_results.py
 ## 正文引用建议
 可在论文实验章节写作：为验证系统在不同场景中的泛化表现，选取自然纹理、室内结构和复杂户外场景构建三组受损样例。所有结果均由系统命令行流程自动生成，并与最近邻放大、双三次放大、单独修复后放大等基线方法进行对比。实验数据保存在 comparison_metrics.csv 中，保证结果可复现。
 
-## ?? GPU ?????SRGAN ???
-- ?????`paper_results/gpu_benchmark/README_gpu_benchmark.md`
-- ?????`paper_results/gpu_benchmark/metrics/srgan_cpu_gpu_comparison.csv`
-- ????`paper_results/gpu_benchmark/figures/srgan_cpu_gpu_latency.png`
-- ?????`paper_results/gpu_benchmark/figures/srgan_cpu_gpu_speedup.png`
-- ?????????????????? NVIDIA GPU ?????????????? MindSpore CRA+SRGAN GPU ????
+
+## 完整 GPU 端到端结果（CUDA 补充路径）
+- 说明文档：`paper_results/gpu_full_pipeline/README_gpu_full_pipeline.md`
+- 3组效果图：`paper_results/gpu_full_pipeline/figures/*_gpu_effect_figure.png`
+- 质量对比图：`paper_results/gpu_full_pipeline/figures/gpu_quality_psnr_ssim.png`
+- 掩码区修复对比图：`paper_results/gpu_full_pipeline/figures/gpu_mask_repair_quality.png`
+- 运行效率与显存图：`paper_results/gpu_full_pipeline/figures/gpu_runtime_memory.png`
+- 原始指标：`paper_results/gpu_full_pipeline/metrics/gpu_full_pipeline_metrics.csv`
+- 说明：该部分是真实 PyTorch CUDA 端到端补充路径，不应写成完整 MindSpore GPU 已跑通。
+
+## SRGAN 原始权重 GPU 性能补充
+- 说明文档：`paper_results/gpu_benchmark/README_gpu_benchmark.md`
+- 对比数据：`paper_results/gpu_benchmark/metrics/srgan_cpu_gpu_comparison.csv`
+- 延迟图：`paper_results/gpu_benchmark/figures/srgan_cpu_gpu_latency.png`
+- 加速比图：`paper_results/gpu_benchmark/figures/srgan_cpu_gpu_speedup.png`
+- 说明：该部分用于补充原始 SRGAN checkpoint 的 NVIDIA GPU 推理性能。

@@ -1,0 +1,15 @@
+{
+  "python": "3.12.2",
+  "torch": "2.11.0+cu128",
+  "cuda_available": true,
+  "torch_cuda_version": "12.8",
+  "device": "cuda",
+  "device_name": "NVIDIA GeForce RTX 4060 Laptop GPU",
+  "pipeline_scope": "CUDA mask repair + CUDA fidelity-preserving super-resolution enhancement",
+  "srgan_gpu_benchmark": "See paper_results/gpu_benchmark for the separate original-SRGAN CUDA benchmark.",
+  "mindspore_gpu_note": "Local Windows MindSpore wheel supports CPU only; this is not a MindSpore-GPU claim.",
+  "scale": 2,
+  "propagation_iterations": 256,
+  "diffusion_iterations": 80,
+  "sharpen_strength": 0.08
+}

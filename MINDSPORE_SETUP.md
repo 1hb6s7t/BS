@@ -138,3 +138,35 @@ python tools\generate_paper_results.py `
 - `paper_results/gpu_benchmark/README_gpu_benchmark.md`
 - `paper_results/gpu_benchmark/metrics/srgan_cpu_gpu_benchmark.csv`
 - `paper_results/gpu_benchmark/metrics/srgan_cpu_gpu_comparison.csv`
+
+
+## 7. 当前已补充的完整 GPU 端到端结果（CUDA 路径）
+
+为满足论文中“完整 GPU 跑通 + 三组效果图 + 三组对比数据图”的需求，当前仓库已补充一个真实 CUDA 端到端验证路径：
+
+```powershell
+.\.venv-ms\Scripts\python .\tools\generate_gpu_paper_results.py
+```
+
+该路径使用 PyTorch CUDA 在本机 RTX 4060 Laptop GPU 上执行：
+
+1. CUDA 掩码传播与扩散修复；
+2. CUDA 保真超分与细节增强；
+3. 自动生成 3 组论文效果图、3 组对比数据图、CSV 和 JSON 环境记录。
+
+当前本机结果摘要：
+
+- 平均全图 PSNR 相比未修复双三次放大提升：约 `7.29 dB`
+- 平均掩码区 PSNR 提升：约 `7.32 dB`
+- 平均端到端耗时：约 `77.6 ms`
+- 峰值 GPU 显存：约 `38.3 MB`
+
+结果见：
+
+- `paper_results/gpu_full_pipeline/README_gpu_full_pipeline.md`
+- `paper_results/gpu_full_pipeline/metrics/gpu_full_pipeline_metrics.csv`
+- `paper_results/gpu_full_pipeline/figures/gpu_quality_psnr_ssim.png`
+- `paper_results/gpu_full_pipeline/figures/gpu_mask_repair_quality.png`
+- `paper_results/gpu_full_pipeline/figures/gpu_runtime_memory.png`
+
+论文表述建议：这部分应写成“补充 CUDA 端到端验证路径”，不要写成“MindSpore GPU 已跑通”。

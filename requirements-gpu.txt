@@ -1,0 +1,8 @@
+# GPU-only optional dependencies for tools/generate_gpu_paper_results.py
+# Install a CUDA-enabled PyTorch wheel that matches your NVIDIA driver.
+# The local verified environment used torch==2.11.0+cu128.
+#
+# Recommended install pattern on Windows/PowerShell:
+#   python -m pip install --index-url https://download.pytorch.org/whl/cu128 torch torchvision
+torch>=2.1
+torchvision>=0.16
