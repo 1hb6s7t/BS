@@ -1,5 +1,7 @@
 # Optional dependencies for the original MindSpore CRA/SRGAN research paths.
 # Install MindSpore from the official selector for your OS, Python and accelerator.
+# Verified local CPU option: mindspore==2.9.0 on Windows + Python 3.12.
+# See MINDSPORE_SETUP.md before using GPU/Ascend claims in paper results.
 scipy>=1.10
 scikit-image>=0.21
 progressbar2>=4.0

@@ -36,3 +36,6 @@ defense_output/gui_mock.png
 .DS_Store
 Thumbs.db
 .vscode/
+
+.venv-ms/
+output_mindspore*/

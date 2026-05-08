@@ -9,10 +9,13 @@ exports figures suitable for direct use in a thesis.
 
 from __future__ import annotations
 
+import argparse
 import csv
 import importlib.util
+import json
 import math
 import shutil
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -77,6 +80,18 @@ class MethodResult:
     detail_fidelity: float
     time_ms: float
     output_path: Path
+
+
+@dataclass(frozen=True)
+class RunOptions:
+    """Runtime options for reproducible paper-result generation."""
+
+    backend: str = "classic"
+    device_target: str = "CPU"
+    scale: int = 2
+    cra_ckpt: str = ""
+    srgan_ckpt: str = ""
+    allow_classic_fallback: bool = True
 
 
 CASES: Sequence[CaseSpec] = (
@@ -201,26 +216,35 @@ def prepare_case_inputs(spec: CaseSpec) -> Tuple[Path, Path, Path]:
     return gt_path, degraded_path, mask_path
 
 
-def configure_processor(spec: CaseSpec, scale: int = 2):
+def configure_processor(spec: CaseSpec, options: RunOptions):
     config = pipeline.ModelConfig()
-    config.backend = "classic"
-    config.scale = scale
+    config.backend = options.backend
+    config.device_target = options.device_target
+    config.scale = options.scale
     config.inpaint_method = "telea"
     config.inpaint_radius = spec.inpaint_radius
     config.sharpen_strength = spec.sharpen_strength
+    config.allow_classic_fallback = options.allow_classic_fallback
+    if options.cra_ckpt:
+        config.default_cra_ckpt = options.cra_ckpt
+    if options.srgan_ckpt:
+        config.default_srgan_ckpt = options.srgan_ckpt
     config.validate()
     processor = pipeline.CombinedProcessor(config)
-    cra_ok, sr_ok = processor.load_models("", "")
+    cra_ok, sr_ok = processor.load_models(config.default_cra_ckpt, config.default_srgan_ckpt)
     if not (cra_ok and sr_ok):
-        raise RuntimeError("Failed to load classic backend models")
+        raise RuntimeError(
+            f"Failed to load models for backend={options.backend}, "
+            f"device_target={options.device_target}"
+        )
     return processor
 
 
-def run_project_pipeline(spec: CaseSpec) -> CaseRunResult:
+def run_project_pipeline(spec: CaseSpec, options: RunOptions) -> CaseRunResult:
     case_dir = OUTPUT_ROOT / "cases" / spec.case_id
     gt_path, degraded_path, mask_path = prepare_case_inputs(spec)
     run_dir = case_dir / "project_pipeline"
-    processor = configure_processor(spec, scale=2)
+    processor = configure_processor(spec, options)
     t0 = time.perf_counter()
     success, result = processor.process_image(str(degraded_path), str(mask_path), str(run_dir))
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
@@ -392,17 +416,7 @@ def baseline_inpaint_nearest(degraded: np.ndarray, mask: np.ndarray, scale: int)
     return cv2.resize(repaired, (degraded.shape[1] * scale, degraded.shape[0] * scale), interpolation=cv2.INTER_NEAREST)
 
 
-def project_method(spec: CaseSpec, degraded_path: Path, mask_path: Path, output_dir: Path) -> Tuple[np.ndarray, float, Path]:
-    processor = configure_processor(spec, scale=2)
-    t0 = time.perf_counter()
-    success, result = processor.process_image(str(degraded_path), str(mask_path), str(output_dir))
-    elapsed_ms = (time.perf_counter() - t0) * 1000.0
-    if not success:
-        raise RuntimeError(f"Project pipeline failed for {spec.case_id}: {result}")
-    return read_rgb(Path(result)), elapsed_ms, Path(result)
-
-
-def evaluate_methods(case_results: Sequence[CaseRunResult]) -> List[MethodResult]:
+def evaluate_methods(case_results: Sequence[CaseRunResult], scale: int) -> List[MethodResult]:
     methods: List[Tuple[str, Callable[[np.ndarray, np.ndarray, int], np.ndarray]]] = [
         ("退化输入+最近邻放大", baseline_nearest),
         ("退化输入+双三次放大", baseline_bicubic),
@@ -413,7 +427,7 @@ def evaluate_methods(case_results: Sequence[CaseRunResult]) -> List[MethodResult
 
     for case in case_results:
         gt = read_rgb(case.gt_path)
-        gt_2x = cv2.resize(gt, (gt.shape[1] * 2, gt.shape[0] * 2), interpolation=cv2.INTER_CUBIC)
+        gt_scaled = cv2.resize(gt, (gt.shape[1] * scale, gt.shape[0] * scale), interpolation=cv2.INTER_CUBIC)
         degraded = read_rgb(case.degraded_path)
         mask = np.array(Image.open(case.mask_path).convert("L"))
         method_dir = case.case_dir / "method_outputs"
@@ -421,16 +435,16 @@ def evaluate_methods(case_results: Sequence[CaseRunResult]) -> List[MethodResult
 
         for method_name, func in methods:
             t0 = time.perf_counter()
-            out = func(degraded, mask, 2)
+            out = func(degraded, mask, scale)
             elapsed_ms = (time.perf_counter() - t0) * 1000.0
             out = np.clip(out, 0, 255).astype(np.uint8)
             out_path = method_dir / f"{safe_name(method_name)}.png"
             save_rgb(out, out_path)
-            all_results.append(score_output(case, method_name, out, gt_2x, elapsed_ms, out_path))
+            all_results.append(score_output(case, method_name, out, gt_scaled, elapsed_ms, out_path))
 
         project_output = read_rgb(case.enhanced_path)
         all_results.append(
-            score_output(case, "本项目：修复+超分增强", project_output, gt_2x, case.elapsed_ms, case.enhanced_path)
+            score_output(case, "本项目：修复+超分增强", project_output, gt_scaled, case.elapsed_ms, case.enhanced_path)
         )
 
     return all_results
@@ -642,6 +656,105 @@ def plot_case_heatmap(results: Sequence[MethodResult]) -> Path:
     return out
 
 
+def metric_output_path(results: Sequence[MethodResult], case_id: str, method: str) -> Path:
+    for row in results:
+        if row.case_id == case_id and row.method == method:
+            return row.output_path
+    raise KeyError(f"Missing metric output for {case_id} / {method}")
+
+
+def make_method_overview_figure(case_results: Sequence[CaseRunResult], metrics: Sequence[MethodResult]) -> Path:
+    """Create one compact visual overview comparing key methods across cases."""
+    columns = [
+        ("原始参考图", lambda case: case.gt_path),
+        ("退化输入", lambda case: case.degraded_path),
+        ("传统修复+双三次", lambda case: metric_output_path(metrics, case.spec.case_id, "传统修复+双三次放大")),
+        ("本项目输出", lambda case: case.enhanced_path),
+    ]
+    tile_w, tile_h = 300, 225
+    left_w = 230
+    top_h = 92
+    gap = 16
+    row_h = tile_h + 46
+    width = left_w + len(columns) * tile_w + (len(columns) + 1) * gap
+    height = top_h + len(case_results) * row_h + gap
+
+    canvas = Image.new("RGB", (width, height), (248, 250, 253))
+    draw = ImageDraw.Draw(canvas)
+    draw.text((gap, 20), "多方法视觉对比总览（真实运行输出）", font=font(34), fill=(20, 35, 55))
+    draw.text((gap, 60), "每一行对应一组测试样例；本项目列为完整修复+超分增强流程输出。", font=font(20), fill=(85, 96, 110))
+
+    for col, (label, _) in enumerate(columns):
+        x = left_w + gap + col * (tile_w + gap)
+        draw.text((x + 12, top_h - 30), label, font=font(22), fill=(30, 45, 65))
+
+    for row, case in enumerate(case_results):
+        y = top_h + row * row_h
+        draw.rounded_rectangle((gap, y + 8, left_w - gap, y + tile_h - 8), radius=14, fill=(255, 255, 255), outline=(220, 228, 238))
+        title_lines = case.spec.title.replace("与", "与\n").replace("小面积", "小面积\n").replace("水印式", "水印式\n")
+        draw.text((gap + 20, y + 62), title_lines, font=font(22), fill=(20, 35, 55), spacing=8)
+
+        for col, (_, getter) in enumerate(columns):
+            x = left_w + gap + col * (tile_w + gap)
+            image = pil_rgb(getter(case))
+            tile = resize_to_tile(image, (tile_w, tile_h))
+            draw.rounded_rectangle((x - 4, y - 4, x + tile_w + 4, y + tile_h + 4), radius=14, fill=(255, 255, 255), outline=(220, 228, 238))
+            canvas.paste(tile, (x, y))
+
+    out = OUTPUT_ROOT / "figures" / "comparison_visual_methods_overview.png"
+    canvas.save(out, quality=95)
+    return out
+
+
+def plot_average_metrics_table(agg: Dict[str, Dict[str, float]]) -> Path:
+    """Render a paper-friendly average metrics table as an image."""
+    methods = list(agg.keys())
+    rows = [
+        [
+            short_method(method),
+            f"{agg[method]['psnr']:.2f}",
+            f"{agg[method]['ssim']:.3f}",
+            f"{agg[method]['edge_similarity']:.3f}",
+            f"{agg[method]['detail_fidelity']:.3f}",
+        ]
+        for method in methods
+    ]
+
+    fig, ax = plt.subplots(figsize=(10.8, 3.8))
+    ax.axis("off")
+    ax.set_title("平均量化指标汇总（3组真实运行结果）", fontsize=15, pad=16, weight="bold")
+    table = ax.table(
+        cellText=rows,
+        colLabels=["方法", "PSNR / dB", "SSIM", "边缘一致性", "细节保真度"],
+        cellLoc="center",
+        loc="center",
+        colWidths=[0.30, 0.16, 0.16, 0.19, 0.19],
+    )
+    table.auto_set_font_size(False)
+    table.set_fontsize(10.5)
+    table.scale(1, 1.65)
+
+    for (row, col), cell in table.get_celld().items():
+        cell.set_edgecolor("#D8E0EA")
+        if row == 0:
+            cell.set_facecolor("#263B63")
+            cell.get_text().set_color("white")
+            cell.get_text().set_weight("bold")
+        elif rows[row - 1][0] == "本项目":
+            cell.set_facecolor("#EAF2FF")
+            cell.get_text().set_weight("bold")
+        elif row % 2 == 0:
+            cell.set_facecolor("#F6F8FB")
+        else:
+            cell.set_facecolor("white")
+
+    fig.tight_layout()
+    out = OUTPUT_ROOT / "figures" / "comparison_average_metrics_table.png"
+    fig.savefig(out, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    return out
+
+
 def short_method(method: str) -> str:
     mapping = {
         "退化输入+最近邻放大": "最近邻",
@@ -653,11 +766,20 @@ def short_method(method: str) -> str:
     return mapping.get(method, method)
 
 
-def write_summary(case_results: Sequence[CaseRunResult], metrics: Sequence[MethodResult], figures: Sequence[Path], csv_path: Path) -> Path:
+def write_summary(
+    case_results: Sequence[CaseRunResult],
+    metrics: Sequence[MethodResult],
+    figures: Sequence[Path],
+    csv_path: Path,
+    options: RunOptions,
+) -> Path:
     agg = aggregate_metrics(metrics)
     project = agg["本项目：修复+超分增强"]
     bicubic = agg["退化输入+双三次放大"]
     traditional = agg["传统修复+双三次放大"]
+    runtime = inspect_runtime(options)
+    runtime_path = OUTPUT_ROOT / "metrics" / "runtime_environment.json"
+    runtime_path.write_text(json.dumps(runtime, ensure_ascii=False, indent=2), encoding="utf-8")
 
     lines = [
         "# 论文效果图与对比测试数据说明",
@@ -665,8 +787,14 @@ def write_summary(case_results: Sequence[CaseRunResult], metrics: Sequence[Metho
         "本目录中的图片均由本项目代码真实运行生成，生成命令：",
         "",
         "```powershell",
-        "python tools\\generate_paper_results.py",
+        build_reproduce_command(options),
         "```",
+        "",
+        "## 运行后端与环境",
+        f"- 论文结果生成后端：`{options.backend}`；设备参数：`{options.device_target}`；放大倍数：`{options.scale}x`。",
+        f"- 实际 Python：`{runtime['python']}`；MindSpore：`{runtime['mindspore_version']}`；MindSpore 当前 device_target：`{runtime['mindspore_device_target']}`。",
+        f"- 环境记录：`{relative(runtime_path)}`。",
+        "- 说明：若使用 Windows CPU 版 MindSpore，CRA 注意力算子 `ExtractImagePatches` 不支持 CPU，完整 CRA 推理需要 GPU/Ascend 后端；本脚本可通过参数切换 deep/auto 并复用同一评测流程。",
         "",
         "## 3组效果图片",
     ]
@@ -680,6 +808,8 @@ def write_summary(case_results: Sequence[CaseRunResult], metrics: Sequence[Metho
             f"- `{relative(OUTPUT_ROOT / 'figures' / 'comparison_quality_psnr_ssim.png')}`：PSNR 与 SSIM 对比。",
             f"- `{relative(OUTPUT_ROOT / 'figures' / 'comparison_edge_detail_fidelity.png')}`：边缘一致性与细节保真度对比。",
             f"- `{relative(OUTPUT_ROOT / 'figures' / 'comparison_case_psnr_heatmap.png')}`：不同测试组 PSNR 热力图。",
+            f"- `{relative(OUTPUT_ROOT / 'figures' / 'comparison_visual_methods_overview.png')}`：多方法视觉对比总览。",
+            f"- `{relative(OUTPUT_ROOT / 'figures' / 'comparison_average_metrics_table.png')}`：平均量化指标表格。",
             "",
             "## 原始量化数据",
             f"- CSV：`{relative(csv_path)}`",
@@ -690,7 +820,15 @@ def write_summary(case_results: Sequence[CaseRunResult], metrics: Sequence[Metho
             f"- 本项目平均边缘一致性：{project['edge_similarity']:.3f}；平均细节保真度：{project['detail_fidelity']:.3f}。",
             "- 结论建议：论文中可表述为“项目端到端联合流程显著优于未修复退化输入与简单放大；在 classic 后端下，与传统修复+双三次插值质量接近，并额外提供可配置、可视化和批处理的一体化流程”。",
             "",
-            "注：当前机器未安装 MindSpore，脚本使用项目内置 classic 后端（OpenCV 修复 + 双三次超分 + 轻量锐化）完成真实运行验证；若在 MindSpore 环境下切换 deep/auto 并加载权重，可复用同一评测脚本扩展深度模型结果。",
+            "注：当前脚本默认使用项目内置 classic 后端（OpenCV 修复 + 双三次超分 + 轻量锐化）生成论文可复现实验；若在可用的 MindSpore GPU/Ascend 环境下切换 `--backend deep/auto` 并加载权重，可复用同一评测脚本扩展深度模型结果。",
+            "",
+            "## 论文图注建议",
+            "1. 图A：三组典型场景下的修复与超分辨率增强效果。每组从左到右依次为原始参考图、退化输入、掩码区域、项目修复结果和联合增强输出。",
+            "2. 图B：多方法视觉对比总览。与直接放大退化输入相比，本项目端到端流程能够先消除局部缺损，再进行分辨率增强，输出更适合后续观察和展示。",
+            "3. 图C：PSNR、SSIM、边缘一致性和细节保真度等量化指标对比。实验结果表明，完整流程相较未修复退化输入和简单插值具有明显质量提升。",
+            "",
+            "## 正文引用建议",
+            "可在论文实验章节写作：为验证系统在不同场景中的泛化表现，选取自然纹理、室内结构和复杂户外场景构建三组受损样例。所有结果均由系统命令行流程自动生成，并与最近邻放大、双三次放大、单独修复后放大等基线方法进行对比。实验数据保存在 comparison_metrics.csv 中，保证结果可复现。",
         ]
     )
     out = OUTPUT_ROOT / "README_paper_results.md"
@@ -702,17 +840,87 @@ def relative(path: Path) -> str:
     return str(path.resolve().relative_to(PROJECT_ROOT.resolve())).replace("\\", "/")
 
 
+def inspect_runtime(options: RunOptions) -> Dict[str, str]:
+    """Collect a compact runtime record for reproducibility."""
+    try:
+        import mindspore as ms  # type: ignore
+
+        version = str(getattr(ms, "__version__", "unknown"))
+        try:
+            target = str(ms.get_context("device_target"))
+        except Exception as exc:  # pragma: no cover - defensive runtime recording
+            target = f"unavailable: {exc}"
+    except Exception as exc:
+        version = f"not importable: {exc}"
+        target = "not importable"
+
+    return {
+        "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+        "mindspore_version": version,
+        "mindspore_device_target": target,
+        "requested_backend": options.backend,
+        "requested_device_target": options.device_target,
+        "scale": str(options.scale),
+        "cra_ckpt": options.cra_ckpt,
+        "srgan_ckpt": options.srgan_ckpt,
+        "allow_classic_fallback": str(options.allow_classic_fallback),
+    }
+
+
+def build_reproduce_command(options: RunOptions) -> str:
+    args = ["python tools\\generate_paper_results.py"]
+    if options.backend != "classic":
+        args.append(f"--backend {options.backend}")
+    if options.device_target != "CPU":
+        args.append(f"--device_target {options.device_target}")
+    if options.scale != 2:
+        args.append(f"--scale {options.scale}")
+    if options.cra_ckpt:
+        args.append(f'--cra_ckpt "{options.cra_ckpt}"')
+    if options.srgan_ckpt:
+        args.append(f'--srgan_ckpt "{options.srgan_ckpt}"')
+    if not options.allow_classic_fallback:
+        args.append("--no_classic_fallback")
+    return " `\n  ".join(args)
+
+
+def parse_args() -> RunOptions:
+    parser = argparse.ArgumentParser(description="生成论文用真实运行效果图和对比数据图")
+    parser.add_argument("--backend", choices=["classic", "auto", "deep"], default="classic", help="项目流水线后端")
+    parser.add_argument("--device_target", choices=["CPU", "GPU", "Ascend"], default="CPU", help="MindSpore 运行设备")
+    parser.add_argument("--scale", type=int, choices=[1, 2, 4, 8], default=2, help="输出放大倍数")
+    parser.add_argument("--cra_ckpt", default="", help="CRA 检查点路径，deep/auto 后端使用")
+    parser.add_argument("--srgan_ckpt", default="", help="SRGAN generator 检查点路径，deep/auto 后端使用")
+    parser.add_argument(
+        "--no_classic_fallback",
+        action="store_true",
+        help="auto 后端加载深度模型失败时不回退 classic；用于严格验证 deep 环境",
+    )
+    ns = parser.parse_args()
+    return RunOptions(
+        backend=ns.backend,
+        device_target=ns.device_target,
+        scale=ns.scale,
+        cra_ckpt=ns.cra_ckpt,
+        srgan_ckpt=ns.srgan_ckpt,
+        allow_classic_fallback=not ns.no_classic_fallback,
+    )
+
+
 def main() -> None:
+    options = parse_args()
     np.random.seed(20260508)
+    cv2.setRNGSeed(20260508)
     ensure_output_dirs()
     setup_matplotlib_style()
 
     print(f"[1/4] 输出目录: {OUTPUT_ROOT}")
+    print(f"      后端: {options.backend}, 设备: {options.device_target}, scale: {options.scale}x")
     case_results: List[CaseRunResult] = []
     effect_figures: List[Path] = []
     for spec in CASES:
         print(f"[2/4] 运行案例: {spec.case_id} - {spec.title}")
-        result = run_project_pipeline(spec)
+        result = run_project_pipeline(spec, options)
         if not result.success:
             raise RuntimeError(f"Pipeline failed for {spec.case_id}")
         case_results.append(result)
@@ -721,7 +929,7 @@ def main() -> None:
         print(f"      效果图: {relative(fig)}")
 
     print("[3/4] 运行对比方法并计算指标")
-    metrics = evaluate_methods(case_results)
+    metrics = evaluate_methods(case_results, options.scale)
     csv_path = save_metrics_csv(metrics)
     agg = aggregate_metrics(metrics)
     comparison_figures = [
@@ -730,8 +938,12 @@ def main() -> None:
         plot_case_heatmap(metrics),
     ]
 
+    visual_overview = make_method_overview_figure(case_results, metrics)
+    metrics_table = plot_average_metrics_table(agg)
+    comparison_figures.extend([visual_overview, metrics_table])
+
     print("[4/4] 写入说明文件")
-    summary_path = write_summary(case_results, metrics, effect_figures + comparison_figures, csv_path)
+    summary_path = write_summary(case_results, metrics, effect_figures + comparison_figures, csv_path, options)
 
     print("\n生成完成：")
     for fig in [*effect_figures, *comparison_figures]:

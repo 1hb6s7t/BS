@@ -43,6 +43,16 @@ python -m pip install -r requirements-optional.txt
 
 MindSpore 需要按你的系统、Python 版本和硬件从官方安装选择器安装。本机 Python 3.13 环境下 `pip index versions mindspore` 没有匹配发行版，所以本项目默认可通过 `classic` 后端运行。
 
+### MindSpore 后端实测状态
+
+本仓库已在 `.venv-ms` 中安装并验证 `mindspore==2.9.0`：
+
+- Windows + Python 3.12.2 + MindSpore 2.9.0 的 CPU 后端可用，`mindspore.run_check()` 通过。
+- 本机 RTX 4060 Laptop GPU 可被 NVIDIA/Docker 识别，但当前 Windows wheel 仅支持 CPU；设置 `device_target=GPU` 会提示当前 wheel 只支持 `['CPU']`。
+- 项目 deep 后端在 CPU 上可加载 CRA/SRGAN 权重并跑通 SRGAN 输出；CRA 推理路径中的 `ExtractImagePatches` 算子不支持 CPU，因此完整 CRA deep 推理需要 GPU/Ascend 环境。
+
+详细安装命令、真实运行记录和“满血”GPU/Ascend 重跑方案见 `MINDSPORE_SETUP.md`。
+
 ## 命令行运行
 
 生成内置示例并跑通完整流程：

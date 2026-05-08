@@ -1,0 +1,34 @@
+{
+  "environment": {
+    "python": "3.12.2",
+    "mindspore": "2.9.0",
+    "device_target": "CPU",
+    "backend": "deep",
+    "cra_ckpt": "CRA/cra.ckpt",
+    "srgan_ckpt": "ckpt/pretrained_generator_epoch100000.ckpt"
+  },
+  "known_limitations": [
+    "Windows mindspore==2.9.0 wheel is CPU-only in this environment.",
+    "CRA CPU inference hits Unsupported op [ExtractImagePatches] on CPU; pipeline returns original image for CRA then runs SRGAN."
+  ],
+  "outputs": [
+    {
+      "path": "output_mindspore_cpu_srgan_ckpt2/1_enhanced.png",
+      "size": [
+        4032,
+        2268
+      ],
+      "bytes": 16600161,
+      "sha256": "64132c9b075ec925ebb87951a1f3a31a67fe90ca8144d0b2823e2ef5628b0a7d"
+    },
+    {
+      "path": "output_mindspore_cpu_srgan_ckpt2/1_repaired.png",
+      "size": [
+        2016,
+        1134
+      ],
+      "bytes": 3783375,
+      "sha256": "1b91f516ae9ff7b0aaec8ce86509edecf68bfae6693ab22321d464e3cc9c446e"
+    }
+  ]
+}

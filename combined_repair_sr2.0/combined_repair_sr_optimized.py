@@ -608,7 +608,15 @@ class CRAModel:
             # 加载检查点
             if os.path.exists(checkpoint_path):
                 param_dict = load_checkpoint(checkpoint_path)
-                load_param_into_net(self.model, param_dict)
+                not_loaded, _ = load_param_into_net(self.model, param_dict)
+                if not_loaded:
+                    logger.error(
+                        "CRA checkpoint does not match the current GatedGenerator; "
+                        "%d parameters were not loaded: %s",
+                        len(not_loaded),
+                        checkpoint_path,
+                    )
+                    return False
                 logger.info(f"CRA模型加载成功: {checkpoint_path}")
                 self.is_loaded = True
                 return True
@@ -680,6 +688,9 @@ class CRAModel:
                 
         except Exception as e:
             logger.error(f"CRA修复过程出错: {e}")
+            if getattr(self.config, "backend", "auto") == "deep" and not getattr(self.config, "allow_classic_fallback", True):
+                logger.error("严格 deep 模式已禁用 fallback，CRA 修复失败将终止流程")
+                return None
             logger.warning("返回原始图像作为备选结果")
             return img
     
@@ -708,8 +719,15 @@ class SRGANModel:
             # 加载检查点
             if os.path.exists(checkpoint_path):
                 param_dict = load_checkpoint(checkpoint_path)
-                load_param_into_net(self.model, param_dict)
-                logger.info(f"SRGAN模型加载成功: {checkpoint_path}")
+                not_loaded, _ = load_param_into_net(self.model, param_dict)
+                if not_loaded:
+                    logger.error(
+                        "SRGAN checkpoint does not match the current Generator; %d parameters were not loaded: %s",
+                        len(not_loaded),
+                        checkpoint_path,
+                    )
+                    return False
+                logger.info("SRGAN model loaded successfully: %s", checkpoint_path)
                 self.is_loaded = True
                 return True
             else:
@@ -952,6 +970,7 @@ class CombinedProcessor:
         self.cra_model = ClassicRepairModel(config) if self.active_backend == "classic" else CRAModel(config)
         self.srgan_model = ClassicSRModel(config) if self.active_backend == "classic" else SRGANModel(config)
         self.loaded_ckpts: Dict[str, str] = {"cra": "", "srgan": ""}
+        self.context_ready = True
         self.setup_context()
     
     def setup_context(self):
@@ -971,7 +990,9 @@ class CombinedProcessor:
             )
             set_seed(2022)
             logger.info(f"MindSpore上下文设置完成: {self.config.device_target}")
+            self.context_ready = True
         except Exception as e:
+            self.context_ready = False
             logger.error(f"设置MindSpore上下文失败: {e}")
     
     @staticmethod
@@ -999,6 +1020,20 @@ class CombinedProcessor:
             self.loaded_ckpts["cra"] = "classic-opencv"
             self.loaded_ckpts["srgan"] = "classic-interpolation"
             return cra_success, srgan_success
+
+        if not self.context_ready:
+            message = f"MindSpore 上下文不可用，无法使用 deep 后端: device_target={self.config.device_target}"
+            if self.config.backend == "auto" and self.config.allow_classic_fallback:
+                logger.warning("%s；auto 模式切换到 classic 后端", message)
+                self.active_backend = "classic"
+                self.cra_model = ClassicRepairModel(self.config)
+                self.srgan_model = ClassicSRModel(self.config)
+                self.loaded_ckpts["cra"] = "classic-opencv"
+                self.loaded_ckpts["srgan"] = "classic-interpolation"
+                return self.cra_model.load_model(""), self.srgan_model.load_model("")
+
+            logger.error(message)
+            return False, False
 
         cra_order = self._build_load_order(cra_ckpt, self.config.cra_ckpt_candidates)
         srgan_order = self._build_load_order(srgan_ckpt, self.config.srgan_ckpt_candidates)
@@ -1114,6 +1149,8 @@ def parse_args():
     parser.add_argument("--sharpen_strength", type=float, help="classic 后端锐化强度，0-1")
     parser.add_argument("--config", type=str, help="JSON 配置文件路径")
     parser.add_argument("--env_file", type=str, help=".env 配置文件路径")
+    parser.add_argument("--no_classic_fallback", action="store_true",
+                        help="禁用 auto/deep 的 classic fallback，用于严格验证深度后端")
     parser.add_argument("--demo", action="store_true", help="生成内置示例并运行一次 classic/auto 流程")
     parser.add_argument("--gui", action="store_true", help="启动图形界面")
     parser.add_argument("--version", action="version", version=f"%(prog)s {APP_VERSION}")
@@ -1140,6 +1177,8 @@ def apply_cli_overrides(config: ModelConfig, args: argparse.Namespace) -> None:
         config.default_cra_ckpt = args.cra_ckpt
     if args.srgan_ckpt:
         config.default_srgan_ckpt = args.srgan_ckpt
+    if args.no_classic_fallback:
+        config.allow_classic_fallback = False
     config.validate()
 
 

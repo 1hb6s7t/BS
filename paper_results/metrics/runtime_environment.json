@@ -1,0 +1,11 @@
+{
+  "python": "3.12.2",
+  "mindspore_version": "2.9.0",
+  "mindspore_device_target": "CPU",
+  "requested_backend": "classic",
+  "requested_device_target": "CPU",
+  "scale": "2",
+  "cra_ckpt": "",
+  "srgan_ckpt": "",
+  "allow_classic_fallback": "True"
+}
