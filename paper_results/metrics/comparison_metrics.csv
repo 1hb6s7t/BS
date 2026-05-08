@@ -1,0 +1,16 @@
+﻿case_id,case_title,method,psnr,ssim,edge_similarity,sharpness,detail_fidelity,time_ms,output_path
+case01_natural_texture,自然纹理划痕修复与细节增强,退化输入+最近邻放大,21.0388,0.915151,0.408274,897.9456,0.179444,0.579,paper_results/cases/case01_natural_texture/method_outputs/退化输入_最近邻放大.png
+case01_natural_texture,自然纹理划痕修复与细节增强,退化输入+双三次放大,21.4547,0.964361,0.921439,175.8467,0.916317,1.506,paper_results/cases/case01_natural_texture/method_outputs/退化输入_双三次放大.png
+case01_natural_texture,自然纹理划痕修复与细节增强,单独修复+最近邻放大,28.9527,0.931156,0.411180,778.9634,0.206854,5.088,paper_results/cases/case01_natural_texture/method_outputs/单独修复_最近邻放大.png
+case01_natural_texture,自然纹理划痕修复与细节增强,传统修复+双三次放大,32.2696,0.980556,0.932143,150.6916,0.935210,6.658,paper_results/cases/case01_natural_texture/method_outputs/传统修复_双三次放大.png
+case01_natural_texture,自然纹理划痕修复与细节增强,本项目：修复+超分增强,32.2860,0.979562,0.838551,181.0944,0.889764,196.256,paper_results/cases/case01_natural_texture/project_pipeline/02_degraded_input_enhanced.png
+case02_indoor_structure,室内结构小面积遮挡修复,退化输入+最近邻放大,21.9091,0.934139,0.380971,454.3455,0.138730,0.674,paper_results/cases/case02_indoor_structure/method_outputs/退化输入_最近邻放大.png
+case02_indoor_structure,室内结构小面积遮挡修复,退化输入+双三次放大,22.2046,0.975976,0.923935,74.9016,0.841522,1.595,paper_results/cases/case02_indoor_structure/method_outputs/退化输入_双三次放大.png
+case02_indoor_structure,室内结构小面积遮挡修复,单独修复+最近邻放大,28.7562,0.943889,0.383118,385.3602,0.163565,4.693,paper_results/cases/case02_indoor_structure/method_outputs/单独修复_最近邻放大.png
+case02_indoor_structure,室内结构小面积遮挡修复,传统修复+双三次放大,30.2926,0.985878,0.935443,60.7072,0.963126,5.397,paper_results/cases/case02_indoor_structure/method_outputs/传统修复_双三次放大.png
+case02_indoor_structure,室内结构小面积遮挡修复,本项目：修复+超分增强,30.2716,0.985499,0.831997,68.9776,0.913795,287.560,paper_results/cases/case02_indoor_structure/project_pipeline/02_degraded_input_enhanced.png
+case03_scene_depth,复杂场景水印式缺损修复增强,退化输入+最近邻放大,22.1337,0.903231,0.393249,662.8471,0.213760,0.879,paper_results/cases/case03_scene_depth/method_outputs/退化输入_最近邻放大.png
+case03_scene_depth,复杂场景水印式缺损修复增强,退化输入+双三次放大,22.5133,0.955206,0.923968,148.5501,0.953822,1.703,paper_results/cases/case03_scene_depth/method_outputs/退化输入_双三次放大.png
+case03_scene_depth,复杂场景水印式缺损修复增强,单独修复+最近邻放大,30.0541,0.929747,0.401835,604.5647,0.234368,11.393,paper_results/cases/case03_scene_depth/method_outputs/单独修复_最近邻放大.png
+case03_scene_depth,复杂场景水印式缺损修复增强,传统修复+双三次放大,32.9758,0.981529,0.953134,135.6561,0.957412,7.707,paper_results/cases/case03_scene_depth/method_outputs/传统修复_双三次放大.png
+case03_scene_depth,复杂场景水印式缺损修复增强,本项目：修复+超分增强,32.9090,0.980810,0.856163,160.1427,0.884776,372.006,paper_results/cases/case03_scene_depth/project_pipeline/02_degraded_input_enhanced.png
