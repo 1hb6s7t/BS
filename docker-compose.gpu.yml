@@ -1,0 +1,18 @@
+services:
+  gpu-demo:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.gpu
+    image: bs-mindspore-gpu-demo:2.0.0-cuda11.6
+    container_name: bs-mindspore-gpu-demo
+    working_dir: /workspace/bs
+    volumes:
+      - .:/workspace/bs
+    environment:
+      PYTHONUNBUFFERED: "1"
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    gpus: all
+    shm_size: "2gb"
+    stdin_open: true
+    tty: true

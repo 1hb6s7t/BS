@@ -365,7 +365,7 @@ def post_processing(large_img, small_img, low_base, small_mask, corres, args):
         input_shape = ops.Shape()(small_img)
         output_h = int(input_shape[2] * scale_factor)
         output_w = int(input_shape[3] * scale_factor)
-        low_raw = resize_op(small_img, size=(output_h, output_w))
+        low_raw = resize_op(small_img, (output_h, output_w))
         
         mask = 1 - small_mask
         to_shape = list(ops.Shape()(mask))[2:]
@@ -384,12 +384,12 @@ def post_processing(large_img, small_img, low_base, small_mask, corres, args):
         low_base_shape = ops.Shape()(low_base)
         low_base_output_h = int(low_base_shape[2] * scale_factor)
         low_base_output_w = int(low_base_shape[3] * scale_factor)
-        low_base = resize_op(low_base, size=(low_base_output_h, low_base_output_w))
+        low_base = resize_op(low_base, (low_base_output_h, low_base_output_w))
         
         # 确保residual和low_base尺寸相同
         if residual.shape != low_base.shape:
             logger.warning(f"尺寸不匹配: residual {residual.shape}, low_base {low_base.shape}")
-            residual = resize_op(residual, size=(low_base_output_h, low_base_output_w))
+            residual = resize_op(residual, (low_base_output_h, low_base_output_w))
         
         x = low_base + residual
         x = ops.clip_by_value(x, -1, 1)
@@ -402,7 +402,7 @@ def post_processing(large_img, small_img, low_base, small_mask, corres, args):
             low_base_shape = ops.Shape()(low_base)
             low_base_output_h = int(low_base_shape[2] * scale_factor)
             low_base_output_w = int(low_base_shape[3] * scale_factor)
-            low_base_resized = resize_op(low_base, size=(low_base_output_h, low_base_output_w))
+            low_base_resized = resize_op(low_base, (low_base_output_h, low_base_output_w))
             result = (low_base_resized + 1.) * 127.5
             return result, low_raw, low_base, None
         except:
@@ -425,7 +425,7 @@ class ModelConfig:
         self.backend = str(_env("BACKEND", "auto")).lower()
         self.input_size = _env_int("INPUT_SIZE", 512)
         self.times = _env_int("TIMES", 8)
-        self.scale = _env_int("SCALE", 2)
+        self.scale = _env_int("SCALE", 4)
         self.device_target = str(_env("DEVICE_TARGET", "CPU"))
         self.train_batchsize = 1
         self.attention_type = 'SOFT'
@@ -433,6 +433,12 @@ class ModelConfig:
         self.inpaint_method = str(_env("INPAINT_METHOD", "telea")).lower()
         self.sharpen_strength = _env_float("SHARPEN_STRENGTH", 0.15)
         self.allow_classic_fallback = _str_to_bool(str(_env("ALLOW_CLASSIC_FALLBACK", "true")))
+        self.srgan_color_stabilize = _str_to_bool(str(_env("SRGAN_COLOR_STABILIZE", "true")))
+        self.srgan_repair_blend = _env_float("SRGAN_REPAIR_BLEND", 1.0)
+        self.srgan_repair_smooth = _env_float("SRGAN_REPAIR_SMOOTH", 1.0)
+        self.srgan_repair_smooth_sigma = _env_float("SRGAN_REPAIR_SMOOTH_SIGMA", 8.0)
+        self.srgan_global_denoise = _env_float("SRGAN_GLOBAL_DENOISE", 0.22)
+        self.srgan_global_denoise_sigma = _env_float("SRGAN_GLOBAL_DENOISE_SIGMA", 0.75)
 
         if config_file:
             self.apply_json_config(config_file)
@@ -457,6 +463,12 @@ class ModelConfig:
             "input_size", "times", "scale", "device_target", "train_batchsize",
             "attention_type", "inpaint_radius", "inpaint_method", "sharpen_strength",
             "allow_classic_fallback",
+            "srgan_color_stabilize",
+            "srgan_repair_blend",
+            "srgan_repair_smooth",
+            "srgan_repair_smooth_sigma",
+            "srgan_global_denoise",
+            "srgan_global_denoise_sigma",
         }
         for key, value in data.items():
             if key in allowed:
@@ -491,6 +503,12 @@ class ModelConfig:
 
         self.sharpen_strength = float(self.sharpen_strength)
         self.sharpen_strength = min(max(self.sharpen_strength, 0.0), 1.0)
+        self.srgan_color_stabilize = _str_to_bool(str(self.srgan_color_stabilize))
+        self.srgan_repair_blend = min(max(float(self.srgan_repair_blend), 0.0), 1.0)
+        self.srgan_repair_smooth = min(max(float(self.srgan_repair_smooth), 0.0), 1.0)
+        self.srgan_repair_smooth_sigma = max(float(self.srgan_repair_smooth_sigma), 0.0)
+        self.srgan_global_denoise = min(max(float(self.srgan_global_denoise), 0.0), 1.0)
+        self.srgan_global_denoise_sigma = max(float(self.srgan_global_denoise_sigma), 0.0)
 
     def should_use_classic_backend(self) -> bool:
         """是否直接使用 OpenCV 经典后端。"""
@@ -708,17 +726,29 @@ class SRGANModel:
         self.overlap = 32      # 重叠区域大小
     
     def load_model(self, checkpoint_path: str) -> bool:
-        """加载SRGAN模型"""
+        """Load the SRGAN generator checkpoint."""
         if not HAS_MINDSPORE:
-            logger.error("无法加载 SRGAN 深度模型: MindSpore 未安装或不可用: %s", MINDSPORE_IMPORT_ERROR)
+            logger.error("Cannot load SRGAN deep model: MindSpore is unavailable: %s", MINDSPORE_IMPORT_ERROR)
             return False
         try:
-            # 创建生成器
-            self.model = self._create_generator()
-            
-            # 加载检查点
+            # Load the checkpoint first so we can verify its upscale factor before
+            # constructing the network. A x4 checkpoint used with --scale 2 loads
+            # only part of the sub-pixel stack and causes color drift/noise.
             if os.path.exists(checkpoint_path):
                 param_dict = load_checkpoint(checkpoint_path)
+                ckpt_scale = self._infer_checkpoint_scale(param_dict)
+                if ckpt_scale is not None and ckpt_scale != self.config.scale:
+                    logger.error(
+                        "SRGAN checkpoint scale mismatch: checkpoint appears to be x%d, "
+                        "but current --scale is x%d. Use --scale %d for %s to avoid color drift/noise.",
+                        ckpt_scale,
+                        self.config.scale,
+                        ckpt_scale,
+                        checkpoint_path,
+                    )
+                    return False
+
+                self.model = self._create_generator()
                 not_loaded, _ = load_param_into_net(self.model, param_dict)
                 if not_loaded:
                     logger.error(
@@ -731,18 +761,72 @@ class SRGANModel:
                 self.is_loaded = True
                 return True
             else:
-                logger.error(f"SRGAN检查点文件不存在: {checkpoint_path}")
+                logger.error("SRGAN checkpoint file does not exist: %s", checkpoint_path)
                 return False
         except ModuleNotFoundError as e:
             logger.error(
-                "加载SRGAN模型时出错: %s。请确认项目根目录在导入路径中（当前: %s）",
+                "Failed to import SRGAN model: %s. Check that the project root is on sys.path: %s",
                 e,
                 PROJECT_ROOT,
             )
             return False
         except Exception as e:
-            logger.error(f"加载SRGAN模型时出错: {e}")
+            logger.error("Failed to load SRGAN model: %s", e)
             return False
+
+    def _infer_checkpoint_scale(self, param_dict: Dict[str, Any]) -> Optional[int]:
+        """Infer SRGAN upscale factor from sub-pixel convolution blocks in a checkpoint."""
+        block_indexes = set()
+        for name in param_dict.keys():
+            if name.startswith("generator.subpixel_conv."):
+                parts = name.split(".")
+                if len(parts) > 2 and parts[2].isdigit():
+                    block_indexes.add(int(parts[2]))
+            elif name.startswith("subpixel_conv."):
+                parts = name.split(".")
+                if len(parts) > 1 and parts[1].isdigit():
+                    block_indexes.add(int(parts[1]))
+        if not block_indexes:
+            return None
+        return 2 ** (max(block_indexes) + 1)
+
+    def _stabilize_color(self, enhanced: np.ndarray, source_img: np.ndarray) -> np.ndarray:
+        """Keep SRGAN luminance detail while borrowing stable color from the repaired image."""
+        if not getattr(self.config, "srgan_color_stabilize", True):
+            return enhanced
+        try:
+            if enhanced is None or source_img is None:
+                return enhanced
+            if enhanced.ndim != 3 or source_img.ndim != 3:
+                return enhanced
+            target_h, target_w = enhanced.shape[:2]
+            ref = cv2.resize(source_img, (target_w, target_h), interpolation=cv2.INTER_CUBIC)
+            if ref.shape != enhanced.shape:
+                return enhanced
+
+            enhanced_ycc = cv2.cvtColor(enhanced.astype(np.uint8), cv2.COLOR_RGB2YCrCb)
+            ref_ycc = cv2.cvtColor(ref.astype(np.uint8), cv2.COLOR_RGB2YCrCb)
+
+            y = enhanced_ycc[:, :, 0].astype(np.float32)
+            y_ref = ref_ycc[:, :, 0].astype(np.float32)
+            y = cv2.addWeighted(y, 0.88, y_ref, 0.12, 0.0)
+            y = cv2.GaussianBlur(y, (0, 0), 0.35)
+
+            stabilized = np.empty_like(enhanced_ycc)
+            stabilized[:, :, 0] = np.clip(y, 0, 255).astype(np.uint8)
+            stabilized[:, :, 1] = ref_ycc[:, :, 1]
+            stabilized[:, :, 2] = ref_ycc[:, :, 2]
+
+            result = cv2.cvtColor(stabilized, cv2.COLOR_YCrCb2RGB)
+            denoise_strength = float(getattr(self.config, "srgan_global_denoise", 0.0))
+            denoise_sigma = float(getattr(self.config, "srgan_global_denoise_sigma", 0.0))
+            if denoise_strength > 0 and denoise_sigma > 0:
+                smooth = cv2.GaussianBlur(result, (0, 0), sigmaX=denoise_sigma, sigmaY=denoise_sigma)
+                result = cv2.addWeighted(result, 1.0 - denoise_strength, smooth, denoise_strength, 0.0)
+            return np.clip(result, 0, 255).astype(np.uint8)
+        except Exception as e:
+            logger.warning("SRGAN color stabilization failed: %s", e)
+            return enhanced
     
     def _create_generator(self):
         """创建SRGAN生成器"""
@@ -763,7 +847,10 @@ class SRGANModel:
             
             # 如果图像尺寸小于块大小，直接处理
             if h <= self.block_size and w <= self.block_size:
-                return self._process_single_block(img)
+                result = self._process_single_block(img)
+                if result is not None:
+                    result = self._stabilize_color(result, img)
+                return result
             
             # 分块处理
             logger.info(f"图像尺寸 ({h}x{w}) 超过块大小，进行分块处理")
@@ -810,11 +897,20 @@ class SRGANModel:
                     
                     # 在重叠区域应用渐变权重
                     if self.overlap > 0:
-                        fade = np.linspace(0, 1, self.overlap * self.config.scale)
-                        weight[:self.overlap * self.config.scale, :] *= fade[:, np.newaxis]
-                        weight[-self.overlap * self.config.scale:, :] *= fade[::-1, np.newaxis]
-                        weight[:, :self.overlap * self.config.scale] *= fade[np.newaxis, :]
-                        weight[:, -self.overlap * self.config.scale:] *= fade[np.newaxis, ::-1]
+                        fade_len_h = min(self.overlap * self.config.scale, block_h)
+                        fade_len_w = min(self.overlap * self.config.scale, block_w)
+                        if fade_len_h > 0:
+                            fade_h = np.linspace(0, 1, fade_len_h, dtype=np.float32)
+                            if i > 0:
+                                weight[:fade_len_h, :] *= fade_h[:, np.newaxis]
+                            if i < num_blocks_h - 1:
+                                weight[-fade_len_h:, :] *= fade_h[::-1, np.newaxis]
+                        if fade_len_w > 0:
+                            fade_w = np.linspace(0, 1, fade_len_w, dtype=np.float32)
+                            if j > 0:
+                                weight[:, :fade_len_w] *= fade_w[np.newaxis, :]
+                            if j < num_blocks_w - 1:
+                                weight[:, -fade_len_w:] *= fade_w[np.newaxis, ::-1]
                     
                     # 将处理后的块添加到输出图像
                     for c in range(3):
@@ -830,7 +926,8 @@ class SRGANModel:
                 output_img[:, :, c] = output_img[:, :, c] / weight_map
             
             logger.info("SRGAN超分辨率处理完成")
-            return np.clip(output_img, 0, 255).astype(np.uint8)
+            enhanced = np.clip(output_img, 0, 255).astype(np.uint8)
+            return self._stabilize_color(enhanced, img)
             
         except Exception as e:
             logger.error(f"SRGAN处理过程出错: {e}")
@@ -1071,6 +1168,52 @@ class CombinedProcessor:
 
         return cra_success, srgan_success
     
+    def _stabilize_repair_regions(self, enhanced: np.ndarray, repaired: np.ndarray, mask: np.ndarray) -> np.ndarray:
+        """Suppress GAN artifacts inside repaired mask regions while preserving SRGAN elsewhere.
+
+        Large inpainting masks are uncertain regions. SRGAN may sharpen the CRA-estimated
+        texture into colored speckles or warped patterns, so we use SRGAN mainly outside
+        the mask and use a feathered, optionally smoothed CRA upsample inside the mask.
+        """
+        strength = float(getattr(self.config, "srgan_repair_blend", 0.0))
+        smooth_strength = float(getattr(self.config, "srgan_repair_smooth", 0.0))
+        smooth_sigma = float(getattr(self.config, "srgan_repair_smooth_sigma", 0.0))
+        if strength <= 0:
+            return enhanced
+        try:
+            if enhanced.ndim != 3 or repaired.ndim != 3 or mask.ndim != 2:
+                return enhanced
+            target_h, target_w = enhanced.shape[:2]
+            repaired_up = cv2.resize(repaired, (target_w, target_h), interpolation=cv2.INTER_CUBIC).astype(np.float32)
+
+            hard_mask = (mask.astype(np.uint8) > 127).astype(np.uint8)
+            mask_up = cv2.resize(hard_mask.astype(np.float32), (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+            feather_sigma = max(1.0, float(self.config.scale) * 2.0)
+            mask_feather = cv2.GaussianBlur(mask_up, (0, 0), sigmaX=feather_sigma)
+            mask_feather = np.clip(mask_feather, 0.0, 1.0)
+
+            repair_source = repaired_up
+            if smooth_strength > 0 and smooth_sigma > 0:
+                smooth = cv2.GaussianBlur(repaired_up, (0, 0), sigmaX=smooth_sigma, sigmaY=smooth_sigma)
+                interior = cv2.distanceTransform(hard_mask, cv2.DIST_L2, 5)
+                interior = cv2.resize(interior, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+                interior = np.clip(interior / max(1.0, float(self.config.scale) * 10.0), 0.0, 1.0)
+                smooth_alpha = (mask_feather * interior * smooth_strength)[:, :, np.newaxis]
+                repair_source = repaired_up * (1.0 - smooth_alpha) + smooth * smooth_alpha
+
+            alpha = np.clip(mask_feather * strength, 0.0, 1.0)[:, :, np.newaxis]
+            blended = enhanced.astype(np.float32) * (1.0 - alpha) + repair_source * alpha
+            logger.info(
+                "Applied mask-aware SRGAN artifact suppression: repair_blend=%.2f, smooth=%.2f, sigma=%.2f",
+                strength,
+                smooth_strength,
+                smooth_sigma,
+            )
+            return np.clip(blended, 0, 255).astype(np.uint8)
+        except Exception as e:
+            logger.warning("Mask-aware SRGAN artifact suppression failed: %s", e)
+            return enhanced
+
     def process_image(self, input_path: str, mask_path: str, output_dir: str, 
                      callback=None) -> Tuple[bool, str]:
         """处理图像的完整流程"""
@@ -1115,6 +1258,8 @@ class CombinedProcessor:
             if enhanced_img is None:
                 logger.warning("超分辨率处理失败，使用修复图像作为最终结果")
                 enhanced_img = repaired_img
+            else:
+                enhanced_img = self._stabilize_repair_regions(enhanced_img, repaired_img, mask)
             
             # 保存最终结果
             if not ImageProcessor.save_image(enhanced_img, enhanced_path):

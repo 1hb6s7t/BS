@@ -114,10 +114,12 @@ python .\combined_repair_sr2.0\combined_repair_sr_optimized.py ^
   --mask_image .\path\mask.png ^
   --output_dir .\output ^
   --backend auto ^
-  --scale 2
+  --scale 4
 ```
 
 掩码规则：白色区域表示需要修复，黑色区域表示保留。
+
+Note: `ckpt/pretrained_generator_epoch100000.ckpt` is an SRGAN x4 checkpoint. Use `--scale 4`; do not mix it with `--scale 2`, otherwise color drift and noise can appear.
 
 ## GUI 运行
 
@@ -134,7 +136,7 @@ python .\combined_repair_sr2.0\start_gui.py
 
 ```text
 CRSR_BACKEND=auto
-CRSR_SCALE=2
+CRSR_SCALE=4
 CRSR_INPAINT_RADIUS=3
 CRSR_INPAINT_METHOD=telea
 CRSR_OUTPUT_DIR=combined_repair_sr2.0/output
@@ -145,7 +147,7 @@ CRSR_OUTPUT_DIR=combined_repair_sr2.0/output
 ```json
 {
   "backend": "classic",
-  "scale": 2,
+  "scale": 4,
   "inpaint_radius": 3,
   "inpaint_method": "telea"
 }
@@ -165,3 +167,11 @@ python -m unittest discover -s tests
 ```
 
 预期结果：编译命令无输出；单测输出 `OK`。
+
+## Docker GPU 演示
+
+如果你要在 Ubuntu / WSL2 / NVIDIA GPU 上演示真实推理，请看：
+
+- `DOCKER_GPU_DEMO.md`
+- `docker-compose.gpu.yml`
+- `docker/run_gpu_demo.ps1`
